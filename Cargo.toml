@@ -11,14 +11,14 @@ repository = "https://github.com/storytold/lightcraft"
 
 [workspace.dependencies]
 # Encode-async + cloud UI (wdunn001/craft-libs lightcraft-encode-async on top of 289d562).
-craft-ui = { git = "https://github.com/wdunn001/craft-libs", rev = "441d918", features = ["serde", "cloud"] }
-craft-docpath = { version = "0.1.0", git = "https://github.com/storytold/craft-libs", rev = "82a24b006eefa036b43c09a67fb9a3fbd17ffe63" }
+craft-ui = {git = "https://github.com/wdunn001/craft-libs", branch = "quasarke", features = ["serde", "cloud"]}
+craft-docpath = {version = "0.1.0", git = "https://github.com/wdunn001/craft-libs", branch = "quasarke"}
 # The vendor-neutral cloud vocabulary: file entries, capabilities, shares.
-craft-cloud = { git = "https://github.com/wdunn001/craft-libs", rev = "441d918" }
+craft-cloud = {git = "https://github.com/wdunn001/craft-libs", branch = "quasarke"}
 # HTTP client that reaches CollabCraft. No provider credential lives in LightCraft.
-craft-cloud-client = { git = "https://github.com/wdunn001/collab-craft", rev = "80bfaec" }
+craft-cloud-client = {git = "https://github.com/wdunn001/collab-craft", branch = "quasarke"}
 # Share-dialog backend that talks to CollabCraft over the same session.
-collabcraft-share = { git = "https://github.com/wdunn001/collab-craft", rev = "80bfaec" }
+collabcraft-share = {git = "https://github.com/wdunn001/collab-craft", branch = "quasarke"}
 # internal
 lightcraft-denoise-core = { path = "crates/denoise-core" }
 lightcraft-denoise = { path = "crates/denoise", default-features = false }
@@ -176,7 +176,7 @@ png = { opt-level = 3 }
 miniz_oxide = { opt-level = 3 }
 
 # collab-craft 80bfaec pins storytold/craft-libs@289d562; unify with the encode-async tip.
-[patch."https://github.com/storytold/craft-libs"]
+[patch."https://github.com/wdunn001/craft-libs"]
 craft-cloud = { path = "../gh-craft-libs/crates/cloud" }
 craft-ui = { path = "../gh-craft-libs/crates/ui" }
 
