@@ -148,7 +148,6 @@ impl LightcraftApp {
             presence: Default::default(),
             cloud_page: None,
             cloud_open_library: None,
-            cloud_encode: None,
         }
     }
 

@@ -28,7 +28,7 @@ use serde_json::{Value as Json, json};
 pub use craft_cloud::{Capability, Entry, EntryKind};
 pub use craft_ui::cloud::{
     Account, Busy, CloudApp, CloudBackend, CloudFiles, Conflict, CopyFormat, Destination, DocumentKind, Event, Fault, Folder, Job, Link, Origin,
-    Post, SaveIntent, Source, UNAVAILABLE, available, browse, can_converse, conflict_modal, destination_name, has_target, link, load_shared,
+    Post, Source, UNAVAILABLE, available, browse, can_converse, conflict_modal, destination_name, has_target, link, load_shared,
     open_entry, open_page, origin, parent_of, prefers_cloud, progress, reload_active, save, save_as, save_page, share_button, shares, sign_in,
     sign_out, start, who, work_together,
 };
@@ -193,10 +193,6 @@ pub fn pump(app: &mut LightcraftApp, ctx: &egui::Context) {
         // Success consumes the stamp inside open_bytes; a failed read leaves it — drop it.
         app.cloud_open_library = None;
     }
-    // Drop the activity row once encode finished (Saving, idle, or failed).
-    if !matches!(app.cloud.busy, Some(Busy::Encoding { .. })) {
-        app.cloud_encode = None;
-    }
 }
 
 // ---------------------------------------------------------------- CloudApp impl
@@ -274,64 +270,12 @@ impl CloudApp for LightcraftApp {
     /// A photo opened as a raw file goes back as a developed image in one of
     /// those formats. A destination name that still looks like RAW (or another
     /// open-only extension) is refused so the uploaded file is not mislabeled.
-    /// Prefer [`CloudApp::begin_encode`] for Save; this sync path is for tests
-    /// and the default craft-ui fallback.
     fn encode(&mut self, uid: u64, into: Destination<'_>) -> Result<Vec<u8>, String> {
         let format = export_format_for(into)?;
         let opts = lightcraft_engine::export::ExportOptions { format, ..Default::default() };
         let item = lightcraft_engine::export::prepare_export(&mut self.session, PhotoId(uid), &opts, 1)
             .map_err(|e| format!("could not prepare photo for export: {e}"))?;
         encode_prepared(item, &opts, None)
-    }
-
-    /// Prepare on the UI thread, encode on a worker (desktop) with an activity
-    /// row, then post [`Event::Encoded`]. Wasm encodes on the calling task.
-    fn begin_encode(&mut self, intent: SaveIntent) -> Result<(), String> {
-        if self.cloud_encode.is_some() {
-            return Err("a cloud save is already preparing".into());
-        }
-        let dest = Destination { name: &intent.name, mime: intent.mime.as_deref() };
-        let format = export_format_for(dest)?;
-        let opts = lightcraft_engine::export::ExportOptions { format, ..Default::default() };
-        let item = lightcraft_engine::export::prepare_export(&mut self.session, PhotoId(intent.uid), &opts, 1)
-            .map_err(|e| format!("could not prepare photo for export: {e}"))?;
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            let bytes = encode_prepared(item, &opts, None).map_err(Fault::Refused);
-            self.cloud.post(Event::Encoded { intent, bytes });
-            return Ok(());
-        }
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            use lightcraft_engine::activity::Cancel;
-            use std::sync::atomic::{AtomicBool, Ordering};
-            use std::sync::Arc;
-
-            let cancel = Arc::new(AtomicBool::new(false));
-            let guard = self.session.activity.start("cloud-save", "Preparing cloud save", Cancel::Flag(cancel.clone()));
-            self.cloud_encode = Some(guard);
-            let tx = self.cloud.event_sender();
-            let work = move || {
-                let bytes = if cancel.load(Ordering::Relaxed) {
-                    Err(Fault::Refused("the cloud save was cancelled".into()))
-                } else {
-                    encode_prepared(item, &opts, Some(cancel.as_ref())).map_err(Fault::Refused)
-                };
-                // Cancel after encode still refuses upload so a cancelled save cannot overwrite.
-                let bytes = match bytes {
-                    Ok(_) if cancel.load(Ordering::Relaxed) => Err(Fault::Refused("the cloud save was cancelled".into())),
-                    other => other,
-                };
-                let _ = tx.send(Event::Encoded { intent, bytes });
-            };
-            std::thread::Builder::new().name("cloud-encode".into()).spawn(work).map_err(|e| {
-                self.cloud_encode = None;
-                format!("could not start cloud encode: {e}")
-            })?;
-            Ok(())
-        }
     }
 
     /// Closing a cloud photo in LightCraft means nothing special: the photo
@@ -381,18 +325,6 @@ impl CloudApp for LightcraftApp {
         Some("The photo is exported as a developed image in the format the destination expects.".into())
     }
 
-    fn recents(&self) -> Vec<String> {
-        self.ui.settings.recent_libraries.clone()
-    }
-
-    fn open_recent(&mut self, path: &str) {
-        let _ = self.run("file.open", json!({"path": path}));
-    }
-
-    fn browse_local(&mut self) {
-        let _ = self.run("file.open", json!({}));
-    }
-
     fn style(&self, ui: &Ui) -> craft_ui::cloud::CloudStyle {
         let t = Tokens::get(ui.ctx());
         craft_ui::cloud::CloudStyle {
@@ -410,9 +342,29 @@ impl CloudApp for LightcraftApp {
 
 // ---------------------------------------------------------------- where the pages are drawn
 
-/// File › Open chrome: Recent, Cloud, Shared with me, and This computer.
+/// File › Open chrome: Cloud, Shared with me, and This computer.
 pub fn open_section(app: &mut LightcraftApp, ui: &mut Ui) {
     open_page(app, ui);
+    this_computer(app, ui);
+}
+
+/// The local half of Open: Browse… and the recent libraries. The app draws
+/// these itself now that craft-ui's open page covers cloud entries only.
+fn this_computer(app: &mut LightcraftApp, ui: &mut Ui) {
+    ui.add_space(12.0);
+    ui.label(egui::RichText::new(crate::i18n::tr("This computer")).strong());
+    ui.add_space(4.0);
+    if ui.button(crate::i18n::tr("Browse…")).clicked() {
+        let _ = app.run("file.open", json!({}));
+        app.cloud_page = None;
+    }
+    let recents: Vec<String> = app.ui.settings.recent_libraries.clone();
+    for path in recents {
+        if ui.link(&path).clicked() {
+            let _ = app.run("file.open", json!({"path": path}));
+            app.cloud_page = None;
+        }
+    }
 }
 
 /// The cloud Open and Save pages as a modal, reached from the File menu.
@@ -429,12 +381,12 @@ pub fn modal(app: &mut LightcraftApp, page: CloudPage, ctx: &egui::Context) {
         ui.set_min_width(360.0_f32.min(width));
         ui.set_max_width(width);
         // Register the modal container so accessibility/regression tests can detect it.
-        crate::widgets::register(ui.ctx(), "modal:cloud", ui.max_rect());
+        crate::widgets::register(ui, "modal:cloud", ui.max_rect());
         ui.label(egui::RichText::new(title).strong().size(16.0));
         ui.add_space(10.0);
         let body = (room.y - ui.min_size().y - 48.0).max(1.0);
         egui::ScrollArea::vertical().id_salt(("lightcraft_cloud_page", page == CloudPage::Save)).max_height(body).show(ui, |ui| match page {
-            CloudPage::Open => open_page(app, ui),
+            CloudPage::Open => open_section(app, ui),
             CloudPage::Save => {
                 close = save_page(app, ui);
             }

@@ -47,6 +47,8 @@ pub(crate) use scan::cards_seen;
 pub(crate) use scan::{HELD_RESOLVES, ScanEnd, scan_by_hand, stall_scan, stall_scan_of};
 pub use scan::{ScanTask, browse, open, poll_scan, running};
 pub(crate) use tags::{tag_field_width, tag_help, tag_toggle, unknown_tags_warning};
+// The cloud Open path calls this on desktop only; the browser stores bytes through the host.
+#[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use task::ensure_can_start;
 pub use task::{ImportTask, start, start_paths, tick};
 

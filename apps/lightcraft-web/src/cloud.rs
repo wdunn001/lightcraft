@@ -53,6 +53,10 @@ fn cookie_has(name: &str) -> bool {
     let Some(document) = web_sys::window().and_then(|w| w.document()) else {
         return false;
     };
+    // `cookie` lives on HtmlDocument; an XML document simply has no cookie.
+    let Ok(document) = document.dyn_into::<web_sys::HtmlDocument>() else {
+        return false;
+    };
     let Ok(cookie) = document.cookie() else {
         return false;
     };
@@ -92,6 +96,18 @@ impl Service {
                     offer_login();
                 }
                 post(Event::Account(answer));
+            }
+            Job::SignIn => {
+                // The browser build signs in by navigating to the service's login page; the page
+                // comes back signed in, and the fresh page asks for the account itself. Already
+                // signed in, the answer unsticks the working badge.
+                match self.me().await {
+                    Ok(me) => {
+                        post(Event::Account(Ok(Account { display: me.display, capabilities: me.capabilities, provider_linked: me.provider_linked })))
+                    }
+                    Err(Fault::Unauthenticated) => offer_login(),
+                    Err(fault) => post(Event::Account(Err(fault))),
+                }
             }
             Job::LinkStart => match self.client.link_start().await.map_err(fault) {
                 Ok(start) => post(Event::Browser { url: start.login_url, handle: Some(start.handle) }),
@@ -167,7 +183,8 @@ fn fault(e: Error) -> Fault {
 /// another host via `<meta name="craft-cloud-url">` must sign in and out there,
 /// not on the page host (which may have no auth routes).
 fn auth_url(path: &str) -> String {
-    let base = Client::from_page().base().trim_end_matches('/');
+    let client = Client::from_page();
+    let base = client.base().trim_end_matches('/');
     if base.is_empty() {
         path.to_owned()
     } else {

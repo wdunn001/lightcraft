@@ -57,6 +57,7 @@ web-sys = { workspace = true, features = [
     "FileSystemWritableFileStream",
     "HtmlAnchorElement",
     "HtmlCanvasElement",
+    "HtmlDocument",
     "HtmlElement",
     "HtmlInputElement",
     "IdbDatabase",
