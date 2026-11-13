@@ -1,12 +1,21 @@
 //! Masking and Remove (spot) commands on the active photo.
 
-use lightcraft_develop::{BrushStroke, LocalAdjustments, Mask, MaskComponent, MaskOp, MaskShape, RedEye, Spot, SpotMode};
+use lightcraft_develop::{
+    BrushStroke, LocalAdjustments, MAX_COLOR_RANGE_SAMPLES, MAX_RED_EYES, Mask, MaskComponent, MaskOp, MaskShape, RedEye, Spot, SpotMode,
+};
 use lightcraft_geom::Point;
 use serde_json::{Value, json};
 
 use super::{CommandSpec, bad, bool_or, cmd, f64_or, has_active, ok, point, str_param};
 use crate::segment::{Click, MAX_CLICKS};
 use crate::{Result, Session};
+
+/// Caps a colour-range shape's sample list at [`MAX_COLOR_RANGE_SAMPLES`] (render cost is pixels x samples).
+fn cap_color_range_samples(shape: &mut MaskShape) {
+    if let MaskShape::ColorRange { samples, .. } = shape {
+        samples.truncate(MAX_COLOR_RANGE_SAMPLES);
+    }
+}
 
 fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
     Ok(match kind {
@@ -35,7 +44,12 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
             let samples: Vec<[f64; 3]> = p
                 .get("samples")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|s| Some([s.get(0)?.as_f64()?, s.get(1)?.as_f64()?, s.get(2)?.as_f64()?])).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|s| Some([s.get(0)?.as_f64()?, s.get(1)?.as_f64()?, s.get(2)?.as_f64()?]))
+                        .take(MAX_COLOR_RANGE_SAMPLES)
+                        .collect()
+                })
                 .unwrap_or_default();
             MaskShape::ColorRange { samples, refine: f64_or(p, "refine", 50.0) }
         }
@@ -84,6 +98,10 @@ fn resolve_ai(s: &mut Session, shape: &mut MaskShape, c: &str) -> Result<Later> 
     match shape {
         MaskShape::Object { seg: Some(_), .. } | MaskShape::Prompt { seg: Some(_), .. } => {}
         MaskShape::Object { hint, exclude, .. } if !hint.is_empty() && background => {
+            // refused here, not when the worker later fails at the model's limit after "pending"
+            if hint.len() + exclude.len() > crate::segment::MAX_CLICKS {
+                return Err(ai_err(format!("an Object selection takes at most {} clicks", crate::segment::MAX_CLICKS)));
+            }
             s.segmenter.require_model()?;
             return Ok(Later::Clicks(std::mem::take(hint), std::mem::take(exclude)));
         }
@@ -144,7 +162,11 @@ fn masks_edit(s: &mut Session, c: &str, label: &str, f: impl FnOnce(&mut Vec<Mas
     let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
     let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
     let mut active = s.active_mask;
+    // the Lens Blur focus follows its mask: a deleted one stops being the focus, so a new mask
+    // that gets its id (the next id is the highest + 1) doesn't turn into it
+    let focus = d.lens_blur.focus_mask.filter(|f| d.masks.iter().any(|m| m.id == *f));
     f(&mut d.masks, &mut active)?;
+    d.lens_blur.focus_mask = focus.filter(|f| d.masks.iter().any(|m| m.id == *f));
     s.set_develop(id, d, label)?;
     s.active_mask = active;
     Ok(json!({"activeMask": active}))
@@ -381,8 +403,9 @@ pub fn specs() -> Vec<CommandSpec> {
             }
         ),
         cmd!("mask.update", "Update Mask Shape", [], None, "{id?, component?: index (0), shape: MaskShape JSON}", has_active, |s, p| {
-            let shape: MaskShape =
+            let mut shape: MaskShape =
                 serde_json::from_value(p.get("shape").cloned().unwrap_or_default()).map_err(|e| bad("mask.update", e.to_string()))?;
+            cap_color_range_samples(&mut shape);
             let comp = optional_index(p, "component", "mask.update")?.unwrap_or(0);
             let mid = mask_id(p, s.active_mask, "mask.update")?;
             masks_edit(s, "mask.update", "Edit Mask", |masks, _| {
@@ -449,6 +472,31 @@ pub fn specs() -> Vec<CommandSpec> {
                 let exclude = bool_or(p, "exclude", false);
                 let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
                 let mid = mask_id(p, s.active_mask, c)?;
+                // an old mask (on the corrected frame, as the click then is) goes onto the photo
+                // first, and the click with it: the model works on the photo before lens
+                // corrections, Upright and Transform, and reads every click there
+                let mut at = at;
+                if let Some(cur) = s.develop_of(id).filter(|d| d.masks.iter().any(|m| m.id == mid && !m.on_photo)) {
+                    if let Some(f) = s.mask_frame(id, &cur) {
+                        // a click on the corrected frame's blank space is off the photo, not on
+                        // its edge (a hair past it, from rounding, is on the edge)
+                        const EDGE: f64 = 1e-6;
+                        let n = f.for_mask(true).norm_to_mask(at);
+                        let on = |v: f64| v.is_finite() && (-EDGE..=1.0 + EDGE).contains(&v);
+                        if !(on(n.x) && on(n.y)) {
+                            return Err(bad(c, "the point is outside the photo"));
+                        }
+                        at = Point::new(n.x.clamp(0.0, 1.0), n.y.clamp(0.0, 1.0));
+                    }
+                    let mut on = (*cur).clone();
+                    s.attach_masks(id, &cur, &mut on);
+                    s.apply_silent(lightcraft_catalog::Op::SetDevelop {
+                        id,
+                        settings: std::sync::Arc::new(on),
+                        label: "Masks".into(),
+                        edited: None,
+                    })?;
+                }
                 let d = s.develop_of(id).unwrap_or_default();
                 let m = d.masks.iter().find(|m| m.id == mid).ok_or_else(|| bad(c, format!("no mask {mid}")))?;
                 let k = m
@@ -608,7 +656,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Set Mask Adjustments",
             [],
             None,
-            "{id?, values: {exposure, contrast, highlights, shadows, whites, blacks, temp, tint, texture, clarity, dehaze, hue, saturation, sharpness, noise, moire, defringe, color_hue, color_sat, amount}}",
+            "{id?, values: {exposure, contrast, highlights, shadows, whites, blacks, temp, tint, texture, clarity, dehaze, hue, saturation, sharpness, noise, moire, defringe, lens_blur, lens_blur_off, lens_blur_outside, lens_blur_boost, lens_blur_transition, color_hue, color_sat, amount}}",
             has_active,
             |s, p| {
                 let vals = p.get("values").cloned().ok_or_else(|| bad("mask.adjust", "missing values"))?;
@@ -1007,6 +1055,9 @@ pub fn specs() -> Vec<CommandSpec> {
                     catchlight: None,
                 };
                 let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+                if s.develop_of(id).is_some_and(|d| d.red_eye.len() >= MAX_RED_EYES) {
+                    return Err(bad(c, format!("at most {MAX_RED_EYES} red eye corrections")));
+                }
                 let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
                 dd.red_eye.push(eye);
                 let n = dd.red_eye.len();
@@ -1104,6 +1155,9 @@ pub(crate) fn clamp_local(mut a: LocalAdjustments) -> LocalAdjustments {
     ] {
         c(v, -100.0, 100.0);
     }
+    c(&mut a.lens_blur, 0.0, 100.0);
+    c(&mut a.lens_blur_boost, 0.0, 100.0);
+    c(&mut a.lens_blur_transition, 0.0, 100.0);
     c(&mut a.color_hue, 0.0, 360.0);
     c(&mut a.color_sat, 0.0, 100.0);
     c(&mut a.amount, 0.0, 200.0);
@@ -1112,7 +1166,7 @@ pub(crate) fn clamp_local(mut a: LocalAdjustments) -> LocalAdjustments {
 
 /// `mask.brushStroke`'s `pressure`: one number 0..1 per point (clamped), at most one per point; absent or `null`
 /// is no pressure data.
-fn pressure_list(v: Option<&Value>, points: usize) -> Result<Vec<f32>> {
+pub(super) fn pressure_list(v: Option<&Value>, points: usize) -> Result<Vec<f32>> {
     let Some(v) = v.filter(|v| !v.is_null()) else { return Ok(Vec::new()) };
     let list = v.as_array().ok_or_else(|| bad("mask.brushStroke", "pressure must be a list of numbers 0..1"))?;
     if list.len() > points {
@@ -1122,4 +1176,31 @@ fn pressure_list(v: Option<&Value>, points: usize) -> Result<Vec<f32>> {
         .map(|q| q.as_f64().filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0) as f32))
         .collect::<Option<Vec<f32>>>()
         .ok_or_else(|| bad("mask.brushStroke", "pressure must be a list of numbers 0..1"))
+}
+
+#[cfg(test)]
+mod tests_color_range {
+    use super::*;
+
+    /// Automation (`mask.add`/`mask.update`) used to take any number of colour-range samples; render
+    /// cost is pixels x samples, so a few hundred hung a large render. The list is now capped.
+    #[test]
+    fn color_range_samples_are_capped() {
+        let samples: Vec<Value> = (0..1000).map(|i| json!([i as f64 / 1000.0, 0.1, 0.2])).collect();
+        let shape = shape_from("colorRange", &json!({ "samples": samples }), "mask.add").unwrap();
+        let MaskShape::ColorRange { samples, .. } = shape else { panic!("expected ColorRange") };
+        assert_eq!(samples.len(), MAX_COLOR_RANGE_SAMPLES);
+        // A reasonable request is unchanged.
+        let few = shape_from("colorRange", &json!({ "samples": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]] }), "mask.add").unwrap();
+        let MaskShape::ColorRange { samples, .. } = few else { panic!() };
+        assert_eq!(samples.len(), 2);
+        // mask.update deserializes the shape directly; it is capped the same way.
+        let mut shape = shape_from("colorRange", &json!({ "samples": [[0.1, 0.2, 0.3]] }), "mask.add").unwrap();
+        if let MaskShape::ColorRange { samples, .. } = &mut shape {
+            samples.resize(1000, samples[0]);
+        }
+        cap_color_range_samples(&mut shape);
+        let MaskShape::ColorRange { samples, .. } = shape else { panic!() };
+        assert_eq!(samples.len(), MAX_COLOR_RANGE_SAMPLES);
+    }
 }
