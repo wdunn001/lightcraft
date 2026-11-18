@@ -36,6 +36,15 @@ pub enum Dialog {
     /// File ▸ Print…: the Print module. Its state is the session's (`print.*`); the page on show
     /// and the selected cell are [`UiState::print`].
     Print,
+    /// File ▸ Open from Cloud Storage…: `craft_ui::cloud::open_page`. Reached only where
+    /// `craft_ui::cloud::available` is true; nothing in this repository attaches a backend yet, so
+    /// this variant is never reachable from a menu or shortcut today.
+    CloudOpen,
+    /// File ▸ Save to Cloud Storage…: `craft_ui::cloud::save_page`. Same reachability note as
+    /// [`Dialog::CloudOpen`]. Closing this dialog for any reason (the Close button, Escape, or a
+    /// save that started) calls `craft_ui::cloud::cancel_save_as`, so an abandoned Save As cannot
+    /// leave a stale suggested name or conflict-copy target for the next one.
+    CloudSave,
     ContactSheet {
         options: lightcraft_engine::contact_sheet::Options,
     },

@@ -143,6 +143,9 @@ impl LightcraftApp {
             alt_asks_for_library: false,
             recent_checks: Default::default(),
             activity_expanded: false,
+            cloud: Default::default(),
+            share: Default::default(),
+            presence: Default::default(),
         }
     }
 

@@ -307,6 +307,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context, blocked: bool) {
             Dialog::Welcome { .. } => 460.0,
             Dialog::LensDatabase { .. } => 440.0,
             Dialog::ManageEffects { .. } => 560.0,
+            Dialog::CloudOpen => 680.0,
+            Dialog::CloudSave => 480.0,
             _ => 380.0,
         })
         .show(ctx, |ui| {
@@ -392,6 +394,11 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context, blocked: bool) {
     if close && matches!(dlg, Dialog::Import { .. }) {
         app.renderer.forget_imports();
     }
+    // Leaving Save As, abandoned or not: discard any conflict-copy target and suggested name so
+    // neither carries into the next cloud Save As.
+    if close && matches!(dlg, Dialog::CloudSave) {
+        craft_ui::cloud::cancel_save_as(app);
+    }
     app.ui.dialog = if close { None } else { Some(dlg) };
 }
 
@@ -471,6 +478,8 @@ fn dialog_title(app: &LightcraftApp, dlg: &Dialog) -> String {
         Dialog::ContactSheet { .. } => "Contact Sheet PDF",
         Dialog::SlideshowExport { .. } => "Export Slideshow",
         Dialog::Print => "Print",
+        Dialog::CloudOpen => "Open from Cloud Storage",
+        Dialog::CloudSave => "Save to Cloud Storage",
         Dialog::Merge { opts } => opts.title(),
         Dialog::Settings { .. } => "Settings",
         Dialog::ConfirmDelete { .. } => "Delete Photos",
@@ -621,7 +630,9 @@ fn fixed_ok_label(app: &LightcraftApp, dlg: &Dialog, informational: bool) -> &'s
         | Dialog::ViewOptions
         | Dialog::LightroomResult { .. }
         | Dialog::DenoiseModel { .. }
-        | Dialog::FaceModel { .. } => "Close",
+        | Dialog::FaceModel { .. }
+        | Dialog::CloudOpen
+        | Dialog::CloudSave => "Close",
     }
 }
 
@@ -2157,5 +2168,14 @@ fn dialog_content(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, body_m
         Dialog::Shortcuts => crate::panels::keymap::body(app, ui, t),
         Dialog::ViewOptions => crate::panels::settings::view_options(app, ui, t),
         Dialog::Print => crate::print_view::body(app, ui, t),
+        Dialog::CloudOpen => craft_ui::cloud::open_page(app, ui),
+        // `save_page` draws its own Save button and returns true once a save has started (not
+        // finished: the transfer keeps running after this dialog closes). The generic chrome
+        // above offers only Close; this is the one place that can also close the dialog.
+        Dialog::CloudSave => {
+            if craft_ui::cloud::save_page(app, ui) {
+                *close = true;
+            }
+        }
     }
 }

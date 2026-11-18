@@ -1,3 +1,5 @@
+use craft_ui::cloud::CloudApp as _;
+
 use super::files::{edit_in, open_log_folder, open_original_in, show_in_finder, show_in_folders};
 use super::ui_commands::{UI_COMMANDS, language_from_command};
 use super::{BeforeAfter, Dialog, LightcraftApp, PickRequest, Picked, RightPanel, Value, ViewMode, Zoom, json, thumb_size_view};
@@ -586,6 +588,40 @@ fn ui_commands_4(app: &mut LightcraftApp, _ctx: &egui::Context, id: &str, p: &Va
                 Some(f) => f(&mut app.session),
                 None => Err("not available here: on the desktop the library is a folder; back it up with your other files".into()),
             }
+        }
+        "file.cloudOpen" | "file.cloudSave" => {
+            if !craft_ui::cloud::available(app) {
+                return Some(Err("no cloud backend is connected".into()));
+            }
+            // Agrees with `menus::ui_enabled`: Save As needs an active photo to suggest a name
+            // for and to encode; Open does not.
+            if id == "file.cloudSave" {
+                if app.session.active().is_none() {
+                    return Some(Err("no photo is open".into()));
+                }
+                // Before opening this page for a fresh Save As: discard any conflict-copy target
+                // and suggested name an earlier, abandoned attempt left behind.
+                craft_ui::cloud::cancel_save_as(app);
+            }
+            app.ui.dialog = Some(if id == "file.cloudOpen" { Dialog::CloudOpen } else { Dialog::CloudSave });
+            Ok(Value::Null)
+        }
+        "file.cloudShare" => {
+            if !craft_ui::cloud::available(app) {
+                return Some(Err("no cloud backend is connected".into()));
+            }
+            let Some(uid) = app.active() else {
+                return Some(Err("no photo is open".into()));
+            };
+            // The provider handle a share needs, when this photo has one. A photo that has never
+            // been in the cloud has none; the share dialog says so, the same as the title bar's
+            // own Share button (`craft_ui::cloud::share_button`).
+            let (entry_id, title) = match craft_ui::cloud::origin(app) {
+                Some(origin) => (origin.entry.id.clone(), origin.entry.name.clone()),
+                None => (String::new(), app.title(uid)),
+            };
+            app.sharing().open(entry_id, title);
+            Ok(Value::Null)
         }
         "view.filmstrip" => {
             app.ui.filmstrip = !app.ui.filmstrip;
@@ -1503,6 +1539,11 @@ fn ui_commands_12(app: &mut LightcraftApp, ctx: &egui::Context, id: &str, p: &Va
 
 /// The `view.back` command.
 fn view_back_command(app: &mut LightcraftApp, ctx: &egui::Context) -> Result<Value, String> {
+    // A cloud surface that is not `app.ui.dialog` (the share dialog, the conflict modal) owns
+    // this key itself; Back must not also change what sits behind it.
+    if crate::cloud::blocks_input(app) {
+        return Ok(Value::Null);
+    }
     if app.ui.dialog.is_some() {
         app.ui.dialog = None;
     } else if app.ui.lights_out != crate::state::LightsOut::On {

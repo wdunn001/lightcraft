@@ -211,5 +211,9 @@ pub(super) fn only_shows(dlg: &Dialog) -> bool {
             | Dialog::Welcome { .. }
             | Dialog::ManageEffects { .. }
             | Dialog::ViewOptions
+            // Both cloud pages draw their own actions (an Open row, Save's own button); the
+            // generic chrome offers only the one Close, same as Settings or About.
+            | Dialog::CloudOpen
+            | Dialog::CloudSave
     ) || matches!(dlg, Dialog::SynchronizeFolder { counts: Some(c), .. } if c.up_to_date())
 }

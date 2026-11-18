@@ -17,6 +17,7 @@ pub const UPDATE_APP: craft_update::app::App = craft_update::app::App {
 
 pub mod brush_live;
 pub mod canvas_keys;
+pub mod cloud;
 mod command_error;
 pub mod control;
 pub mod destination;
@@ -400,6 +401,14 @@ pub struct LightcraftApp {
     pub recent_checks: panels::library_problem::RecentChecks,
     /// The activity stack shows every task, not just the first few ("+N more" was clicked).
     pub activity_expanded: bool,
+    /// Cloud Open/Save/share state (`craft_ui::cloud`). Backend-less by default: nothing in this
+    /// repository calls `craft_ui::cloud::CloudFiles::connect` yet, so `craft_ui::cloud::available`
+    /// reads `false` and every cloud affordance stays hidden.
+    pub cloud: craft_ui::cloud::CloudFiles,
+    /// Required by `craft_ui::cloud::CloudApp::sharing`; shown every frame by `self.share.show(ctx)`.
+    pub share: craft_ui::share::ShareDialog,
+    /// Required by `craft_ui::cloud::CloudApp::presence`; drawn beside the account badge.
+    pub presence: craft_ui::presence::PresenceBar,
 }
 
 /// How long a screenshot waits for in-flight renders before it is captured anyway (and the

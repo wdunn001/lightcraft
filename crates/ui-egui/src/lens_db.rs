@@ -31,7 +31,7 @@ fn start_download(app: &mut LightcraftApp) {
         app.ui.lens_download_checked = true;
         return;
     }
-    if app.ui.dialog.is_some() || crate::panels::library_problem::blocks_dialog_input(app) {
+    if app.ui.dialog.is_some() || crate::panels::library_problem::blocks_dialog_input(app) || crate::cloud::blocks_input(app) {
         return;
     }
     app.ui.lens_download_checked = true;

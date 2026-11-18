@@ -30,6 +30,8 @@ fn thumb_size_view(app: &LightcraftApp) -> bool {
 pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
     match id {
         "library.selectOnlyActive" => app.session.active().is_some(),
+        "file.cloudOpen" => craft_ui::cloud::available(app),
+        "file.cloudSave" | "file.cloudShare" => craft_ui::cloud::available(app) && app.session.active().is_some(),
         "view.thumbSizeUp" | "view.thumbSizeDown" => thumb_size_view(app),
         "dialog.contactSheet" | "app.contactSheet" | "dialog.print" | "app.print" => {
             !cfg!(target_arch = "wasm32") && app.session.active().is_some() && app.export.is_none()

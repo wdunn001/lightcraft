@@ -190,6 +190,28 @@ fn right_icons(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, full: Rec
         ("bell", Icon::Bell, "Activity", "panel.activity"),
     ] {
         let warn = id == "cloud" && unsaved.is_some();
+        // A connected backend replaces the static icon with the live account badge, in the same
+        // slot. The unsaved-writes warning is computed above unconditionally and must still show
+        // here when both are true at once: this branch draws the badge and then falls through to
+        // the same `warn` overlay below, rather than returning early and skipping it.
+        if id == "cloud" && craft_ui::cloud::available(app) {
+            let r = Rect::from_center_size(pos2(x, full.center().y), vec2(28.0, full.height()));
+            if warn {
+                let tip = crate::i18n::tr(cloud_tip);
+                ui.interact(r, egui::Id::unique(("top", "cloud-badge-warn")), Sense::hover()).on_hover_text(tip);
+            }
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
+            craft_ui::cloud::who(app, &mut child);
+            register(ui, "icon:cloud", r);
+            if warn {
+                let c = r.right_top() + vec2(-5.0, 6.0);
+                ui.painter().circle_filled(c, 6.0, t.reject);
+                ui.painter().text(c, Align2::CENTER_CENTER, "!", t.semibold(9.5), t.canvas);
+                register(ui, "indicator:unsaved", r);
+            }
+            x -= 40.0;
+            continue;
+        }
         if id == "cloud" && !warn {
             continue;
         }

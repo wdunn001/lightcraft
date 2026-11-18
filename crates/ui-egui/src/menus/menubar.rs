@@ -147,6 +147,10 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "file.importKeywords",
             "file.exportKeywords",
             "---",
+            "file.cloudOpen",
+            "file.cloudSave",
+            "file.cloudShare",
+            "---",
             "dialog.export",
             "app.exportPrevious",
             "@Export with Preset",
@@ -364,6 +368,7 @@ pub(crate) fn selection_deleted(app: &LightcraftApp) -> bool {
 fn host_supports(app: &LightcraftApp, id: &str) -> bool {
     match id {
         "file.backupLibrary" => app.services.backup_library.is_some(),
+        "file.cloudOpen" | "file.cloudSave" | "file.cloudShare" => craft_ui::cloud::available(app),
         "file.restoreLibrary" => app.services.restore_library.is_some(),
         "photo.restore" | "photo.deletePermanently" => selection_deleted(app),
         "photo.delete" => !selection_deleted(app),

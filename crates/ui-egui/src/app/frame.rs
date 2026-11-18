@@ -101,6 +101,8 @@ impl LightcraftApp {
         panels::denoise::pump_background(self, ctx, now);
         panels::faces::pump_background(self, ctx, now);
         focus_scan::pump(self, ctx, now);
+        // Cloud Open/Save: drain whatever the backend posted (a no-op without one attached).
+        craft_ui::cloud::pump(self, ctx);
         // auto import: list the watched folder every few seconds (on a worker thread: it may be on
         // a network share), then import what's new like any import (also on a worker thread)
         // a folder that couldn't be read stops being one once another is watched (or none)
@@ -455,6 +457,11 @@ impl LightcraftApp {
                 panels::notices::hide_background_pointer(&ctx);
             }
             panels::dialogs::show(self, &ctx, notice_blocks);
+            // The share dialog is a required `CloudApp` member (`CloudApp::sharing`); it draws
+            // its own modal and manages its own open/close state, same as the cloud conflict
+            // modal below. Called from here so it appears even on this full-screen path.
+            self.share.show(&ctx);
+            craft_ui::cloud::conflict_modal(self, &ctx);
             updates_ui::show(self, &ctx);
             panels::library_problem::show(self, &ctx, notice_blocks);
             panels::toast(self, &ctx);
@@ -486,6 +493,10 @@ impl LightcraftApp {
             panels::notices::hide_background_pointer(&ctx);
         }
         panels::dialogs::show(self, &ctx, notice_blocks);
+        // The share dialog is a required `CloudApp` member (`CloudApp::sharing`); it draws its
+        // own modal and manages its own open/close state, same as the cloud conflict modal below.
+        self.share.show(&ctx);
+        craft_ui::cloud::conflict_modal(self, &ctx);
         updates_ui::show(self, &ctx);
         panels::library_problem::show(self, &ctx, notice_blocks);
         export_task::poll(self, &ctx);

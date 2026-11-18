@@ -247,8 +247,15 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         Dialog::DeleteEffects { names } => app.run("mask.deleteEffect", json!({"names": names})),
         Dialog::RemoveFolder { path, disk, .. } => app.run("library.removeFolder", json!({"path": path, "disk": disk})),
         d @ Dialog::SynchronizeFolder { .. } => crate::sync::confirm(app, d),
-        Dialog::About | Dialog::Shortcuts | Dialog::Settings { .. } | Dialog::ManageEffects { .. } | Dialog::ViewOptions => {
-            Ok(serde_json::Value::Null)
-        }
+        // Informational, like the dialogs above: their single button is Close, which `button_row`
+        // routes to `close` directly, never to `confirm`. Open/Save act through their own inline
+        // buttons (`craft_ui::cloud::open_page`/`save_page`), not this generic confirm path.
+        Dialog::About
+        | Dialog::Shortcuts
+        | Dialog::Settings { .. }
+        | Dialog::ManageEffects { .. }
+        | Dialog::ViewOptions
+        | Dialog::CloudOpen
+        | Dialog::CloudSave => Ok(serde_json::Value::Null),
     }
 }

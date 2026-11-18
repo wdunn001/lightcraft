@@ -234,6 +234,13 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("file.findMissing", "Find Missing Photos…", None, "File"),
     ("file.backupLibrary", "Back Up Library…", None, "File"),
     ("file.restoreLibrary", "Restore Library from Backup…", None, "File"),
+    // Hidden by `host_supports` unless a cloud backend is attached (`craft_ui::cloud::available`);
+    // nothing in this repository attaches one yet. Listed in the Keyboard Shortcuts editor's
+    // bindable commands regardless, the same gap `file.backupLibrary` above already has: that
+    // editor does not filter by `host_supports`, and this branch does not change it.
+    ("file.cloudOpen", "Open from Cloud Storage…", None, "File"),
+    ("file.cloudSave", "Save to Cloud Storage…", None, "File"),
+    ("file.cloudShare", "Share…", None, "File"),
     ("photo.locate", "Locate Missing File…", None, ""),
     ("dialog.saveMetadataPreset", "Save Metadata Preset…", None, ""),
     // the keywords ⇧K adds or removes, typed with commas between them

@@ -105,7 +105,7 @@ fn confirm_above(app: &mut LightcraftApp, ctx: &egui::Context, name: &str, more:
 /// The page-scoped A key takes precedence over View ▸ Visualize Spots only for a visible More tile. Called before the
 /// general shortcut dispatcher, using the previous frame's registered rectangles as the pointer's target.
 pub(crate) fn handle_bulk_key(app: &mut LightcraftApp, ctx: &egui::Context) -> bool {
-    if app.ui.view != crate::state::ViewMode::People || app.ui.dialog.is_some() || ctx.text_edit_focused() {
+    if app.ui.view != crate::state::ViewMode::People || app.ui.dialog.is_some() || ctx.text_edit_focused() || crate::cloud::blocks_input(app) {
         return false;
     }
     let Some(name) = app.ui.person_page.clone() else { return false };

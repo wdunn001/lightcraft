@@ -27,7 +27,7 @@ pub fn classify(paths: Vec<String>) -> Sorted {
 /// The lines the card shows for files hovering over the window (`unknown`: how many have no path
 /// to look at, as on some platforms and in browsers), for the current settings.
 fn lines(app: &LightcraftApp, paths: Vec<String>, unknown: bool) -> Vec<String> {
-    if app.ui.dialog.is_some() {
+    if app.ui.dialog.is_some() || crate::cloud::blocks_input(app) {
         return vec![crate::i18n::tr("Close the open dialog to drop files here").to_string()];
     }
     let drop = classify(paths);
